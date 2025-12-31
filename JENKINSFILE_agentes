@@ -1,0 +1,71 @@
+pipeline{
+    agent any
+
+    options { skipDefaultCheckout() }   // No descargar el codigo en todos los agentes
+    
+    stages{
+        stage('Get code'){
+            steps{
+                // Obtener el código fuente desde el repositorio Git
+                git 'https://github.com/albertogg1/CP1.1.git'
+                echo WORKSPACE
+                bat 'dir'
+                stash name:'code', includes: '**'   // Incluye todo el código fuente en el stash
+            }
+        }
+        
+        stage('Build'){
+            steps{
+                bat 'echo "Esto es Python, no hay nada que compilar"'
+            }
+        }
+        
+        stage('Tests'){
+            parallel{
+                stage('Unit'){
+                    agent {label 'agent'}
+                    steps{
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
+                            unstash name:'code'   // Recupera el código fuente del stash
+                            bat '''
+                                whoami
+                                hostname
+                                set PYTHONPATH=%WORKSPACE%
+                                pytest --junitxml=test\\unit\\report.xml test\\unit
+                            '''
+                        }
+                        stash name:'unit-res', includes: 'test/unit/report.xml'
+                        deleteDir() //Borra el workspace del agente
+                    }
+                }
+
+                stage('Rest'){
+                    agent {label 'agent3'}
+                    steps{
+                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
+                            unstash name:'code'   // Recupera el código fuente del stash
+                            bat '''
+                                set FLASK_APP=app\\api.py
+                                start flask run
+                                start java -jar C:\\EU_DevOps_Cloud\\ejercicios\\wiremock-standalone-3.13.2.jar --port 9090 --root-dir test\\wiremock
+                                set PYTHONPATH=%WORKSPACE%
+                                pytest --junitxml=result-rest.xml test\\rest
+                            '''
+                            stash name:'rest-res', includes: 'result-rest.xml'
+                        }
+
+                    }
+                }
+            }
+        }
+
+
+        stage('Results'){
+            steps{
+                unstash name:'unit-res'
+                unstash name:'rest-res'
+                junit 'result*.xml'
+            }
+        }
+    }
+}
