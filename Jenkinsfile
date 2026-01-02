@@ -6,82 +6,90 @@ pipeline{
             steps{
                 // Obtener el código fuente desde el repositorio Git
                 echo 'Hello World' // Esto no es el echo del sistema operativo sino el del log de Jenkins
-                git branch: 'develop', url: 'https://github.com/albertogg1/CP1.2.git'
+                git 'https://github.com/albertogg1/CP1.2.git'
                 bat 'dir'
                 bat 'echo %WORKSPACE%'
             }
         }
         
+        stage('Unit'){
+            steps{
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                     bat '''
+                        set PYTHONPATH=%WORKSPACE%
+                        coverage run --source=app --omit=app\\__init__.py,app\\api.py -m pytest --junitxml=result-unit.xml test\\unit
+                    '''
+                    junit 'result-unit.xml'
+                }
+            }
+        }
+
+        stage('Rest'){
+            steps{
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
+                    bat '''
+                        set FLASK_APP=app\\api.py
+                        start flask run
+                        start java -jar C:\\EU_DevOps_Cloud\\ejercicios\\wiremock-standalone-3.13.2.jar --port 9090 --root-dir test\\wiremock
+                        
+                        ping -n 10 127.0.0.1
+
+                        set PYTHONPATH=%WORKSPACE%
+                        pytest --junitxml=result-rest.xml test\\rest
+                    '''
+                }
+                junit 'result-rest.xml'
+            }
+        }   
+
         stage('Static'){
             steps{
                     bat '''
                         set PYTHONPATH=%WORKSPACE%
-                        flake8 --exit-zero --format=pylint app >flake8.out
+                        flake8 --exit-zero --format=pylint --max-line-length 90 app >flake8.out
                     '''
-                    recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')], qualityGates: [[threshold: 10, type: 'TOTAL', unstable: true], [threshold: 16, type: 'TOTAL', unstable: false]]
+                    recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')], qualityGates: [[threshold: 8, type: 'TOTAL', unstable: true], [threshold: 10, type: 'TOTAL', unstable: false]]
             }
         }
 
-        stage('Tests'){
-            parallel{
-                stage('Unit'){
-                    steps{
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
-                            bat '''
-                                set PYTHONPATH=%WORKSPACE%
-                                pytest --junitxml=test\\unit\\report.xml test\\unit
-                            '''
-                        }
-                    }
-                }
-
-                stage('Service'){
-                    steps{
-                        bat '''
-                            set FLASK_APP=app\\api.py
-                            start flask run
-                            start java -jar C:\\EU_DevOps_Cloud\\ejercicios\\wiremock-standalone-3.13.2.jar --port 9090 --root-dir test\\wiremock
-
-                            echo Esperando a Flask...
-                            :wait_flask
-                            curl -s http://localhost:5000 >nul 2>&1 || (
-                                timeout /t 2 >nul
-                                goto wait_flask
-                            )
-
-                            echo Esperando a WireMock...
-                            :wait_wiremock
-                            curl -s http://localhost:9090 >nul 2>&1 || (
-                                timeout /t 2 >nul
-                                goto wait_wiremock
-                            )
-
-                            set PYTHONPATH=%WORKSPACE%
-                            pytest --junitxml=result-rest.xml test\\rest
-                        '''
-                    }
-                }   
-            }
-        }
- 
-
-        stage('Cobertura'){
+        stage('Security Test'){
             steps{
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
                     bat '''
                         set PYTHONPATH=%WORKSPACE%
-                        coverage run --source=app --omit=app\\__init__.py,app\\api.py -m pytest test\\unit
-                        coverage xml
+                        bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}" 
                     '''
-                    recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'ERROR', integerThreshold: 60, metric: 'LINE', threshold: 60.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
+                    recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], qualityGates: [[threshold: 2, type: 'TOTAL', unstable: true], [threshold: 4, type: 'TOTAL', unstable: false]]
                 }
             }
         }
 
-        stage('Results'){
+        stage('Performance'){
             steps{
-                junit 'result*.xml'
+                bat '''
+                    set FLASK_APP=app\\api.py
+                    start flask run
+
+                    ping -n 10 127.0.0.1
+
+                    C:\\EU_DevOps_Cloud\\ejercicios\\apache-jmeter-5.6.3\\bin\\jmeter.bat -n -t test\\jmeter\\flask.jmx -l flask.jtl
+                '''
+                perfReport sourceDataFiles: 'flask.jtl'
             }
         }
-    }
+ 
+        stage('Coverage'){
+            steps{
+                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
+                    bat '''
+                        coverage xml
+                        coverage report
+                    '''
+                    recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 95, metric: 'LINE', threshold: 95.0], [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'NOTE', integerThreshold: 90, metric: 'BRANCH', threshold: 90.0], [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
+                
+                }
+            }
+        }
+
+    } 
 }
