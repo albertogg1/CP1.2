@@ -17,7 +17,7 @@ pipeline{
                 catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
                      bat '''
                         set PYTHONPATH=%WORKSPACE%
-                        coverage run --source=app --omit=app\\__init__.py,app\\api.py -m pytest --junitxml=result-unit.xml test\\unit
+                        coverage run --branch --source=app --omit=app\\__init__.py,app\\api.py -m pytest --junitxml=result-unit.xml test\\unit
                     '''
                     junit 'result-unit.xml'
                 }
@@ -80,7 +80,11 @@ pipeline{
                     coverage xml
                     coverage report
                 '''
-                recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 95, metric: 'LINE', threshold: 95.0], [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'NOTE', integerThreshold: 90, metric: 'BRANCH', threshold: 90.0], [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
+                recordCoverage qualityGates: [[integerThreshold: 95, metric: 'LINE', threshold: 95.0],
+                                              [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0],
+                                              [integerThreshold: 90, metric: 'BRANCH', threshold: 90.0],
+                                              [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]],
+                                tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
             }
         }
 
