@@ -26,18 +26,16 @@ pipeline{
 
         stage('Rest'){
             steps{
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE') {
-                    bat '''
-                        set FLASK_APP=app\\api.py
-                        start flask run
-                        start java -jar C:\\EU_DevOps_Cloud\\ejercicios\\wiremock-standalone-3.13.2.jar --port 9090 --root-dir test\\wiremock
-                        
-                        ping -n 10 127.0.0.1
+                bat '''
+                    set FLASK_APP=app\\api.py
+                    start flask run
+                    start java -jar C:\\EU_DevOps_Cloud\\ejercicios\\wiremock-standalone-3.13.2.jar --port 9090 --root-dir test\\wiremock
+                    
+                    ping -n 10 127.0.0.1
 
-                        set PYTHONPATH=%WORKSPACE%
-                        pytest --junitxml=result-rest.xml test\\rest
-                    '''
-                }
+                    set PYTHONPATH=%WORKSPACE%
+                    pytest --junitxml=result-rest.xml test\\rest
+                '''
                 junit 'result-rest.xml'
             }
         }   
@@ -54,13 +52,11 @@ pipeline{
 
         stage('Security Test'){
             steps{
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
-                    bat '''
-                        set PYTHONPATH=%WORKSPACE%
-                        bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}" 
-                    '''
-                    recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], qualityGates: [[threshold: 2, type: 'TOTAL', unstable: true], [threshold: 4, type: 'TOTAL', unstable: false]]
-                }
+                bat '''
+                    set PYTHONPATH=%WORKSPACE%
+                    bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}" 
+                '''
+                recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], qualityGates: [[threshold: 2, type: 'TOTAL', unstable: true], [threshold: 4, type: 'TOTAL', unstable: false]]
             }
         }
 
@@ -80,14 +76,11 @@ pipeline{
  
         stage('Coverage'){
             steps{
-                catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
-                    bat '''
-                        coverage xml
-                        coverage report
-                    '''
-                    recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 95, metric: 'LINE', threshold: 95.0], [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'NOTE', integerThreshold: 90, metric: 'BRANCH', threshold: 90.0], [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
-                
-                }
+                bat '''
+                    coverage xml
+                    coverage report
+                '''
+                recordCoverage qualityGates: [[criticality: 'NOTE', integerThreshold: 95, metric: 'LINE', threshold: 95.0], [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0], [criticality: 'NOTE', integerThreshold: 90, metric: 'BRANCH', threshold: 90.0], [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]], tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
             }
         }
 
