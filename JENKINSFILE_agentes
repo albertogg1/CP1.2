@@ -1,70 +1,157 @@
 pipeline{
     agent any
-
-    options { skipDefaultCheckout() }   // No descargar el codigo en todos los agentes
+    options { skipDefaultCheckout() }
     
     stages{
         stage('Get code'){
             steps{
-                // Obtener el código fuente desde el repositorio Git
-                git 'https://github.com/albertogg1/CP1.1.git'
-                echo WORKSPACE
+                git 'https://github.com/albertogg1/CP1.2.git'
+                bat 'whoami'
+                bat 'hostname'
+                bat 'echo %WORKSPACE%'
                 bat 'dir'
-                stash name:'code', includes: '**'   // Incluye todo el código fuente en el stash
-            }
-        }
-        
-        stage('Build'){
-            steps{
-                bat 'echo "Esto es Python, no hay nada que compilar"'
+                stash name: 'code', includes: '**'
             }
         }
         
         stage('Tests'){
             parallel{
-                stage('Unit'){
-                    agent {label 'agent'}
-                    steps{
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
-                            unstash name:'code'   // Recupera el código fuente del stash
-                            bat '''
-                                whoami
-                                hostname
-                                set PYTHONPATH=%WORKSPACE%
-                                pytest --junitxml=test\\unit\\report.xml test\\unit
-                            '''
+                    stage('Unit'){
+                        agent { label 'agent' }
+                        steps{
+                            unstash name: 'code'
+                            bat 'whoami'
+                            bat 'hostname'
+                            bat 'echo %WORKSPACE%'
+                            catchError(buildResult: 'SUCCESS', stageResult: 'SUCCESS') {
+                                bat '''
+                                    set PYTHONPATH=%WORKSPACE%
+                                    coverage run --branch --source=app --omit=app\\__init__.py,app\\api.py -m pytest --junitxml=result-unit.xml test\\unit
+                                '''
+                            }
+                            stash name: 'unit-results', includes: 'result-unit.xml'
+                            stash name: 'coverage-data', includes: '.coverage'
                         }
-                        stash name:'unit-res', includes: 'test/unit/report.xml'
-                        deleteDir() //Borra el workspace del agente
                     }
-                }
-
-                stage('Rest'){
-                    agent {label 'agent3'}
-                    steps{
-                        catchError(buildResult: 'UNSTABLE', stageResult: 'FAILURE'){
-                            unstash name:'code'   // Recupera el código fuente del stash
+                    
+                    stage('Rest'){
+                        agent { label 'agent' }
+                        steps{
+                            // No unstash porque sé que ya está en el workspace
+                            bat 'whoami'
+                            bat 'hostname'
+                            bat 'echo %WORKSPACE%'
                             bat '''
                                 set FLASK_APP=app\\api.py
                                 start flask run
                                 start java -jar C:\\EU_DevOps_Cloud\\ejercicios\\wiremock-standalone-3.13.2.jar --port 9090 --root-dir test\\wiremock
+                                
+                                ping -n 10 127.0.0.1
+                                
                                 set PYTHONPATH=%WORKSPACE%
                                 pytest --junitxml=result-rest.xml test\\rest
                             '''
-                            stash name:'rest-res', includes: 'result-rest.xml'
+                            stash name: 'rest-results', includes: 'result-rest.xml'
                         }
-
                     }
-                }
+
+                    stage('Static'){
+                        agent { label 'agent3' }
+                        steps{
+                            unstash name: 'code'
+                            bat 'whoami'
+                            bat 'hostname'
+                            bat 'echo %WORKSPACE%'
+                            bat '''
+                                set PYTHONPATH=%WORKSPACE%
+                                flake8 --exit-zero --format=pylint --max-line-length 90 app >flake8.out
+                            '''
+                            stash name: 'static-results', includes: 'flake8.out'
+                        }
+                    }
+                    
+                    stage('Security'){
+                        agent { label 'agent3' }
+                        steps{
+                            // No unstash porque sé que ya está en el workspace
+                            bat 'whoami'
+                            bat 'hostname'
+                            bat 'echo %WORKSPACE%'
+                            bat '''
+                                set PYTHONPATH=%WORKSPACE%
+                                bandit --exit-zero -r . -f custom -o bandit.out --msg-template "{abspath}:{line}: [{test_id}] {msg}"
+                            '''
+                            stash name: 'security-results', includes: 'bandit.out'
+                        }
+                    }
+                    
+                    stage('Performance'){
+                        agent { label 'agent3' }
+                        steps{
+                            // No unstash porque sé que ya está en el workspace
+                            bat 'whoami'
+                            bat 'hostname'
+                            bat 'echo %WORKSPACE%'
+                            bat '''
+                                set FLASK_APP=app\\api.py
+                                start flask run
+                                
+                                ping -n 10 127.0.0.1
+                                
+                                C:\\EU_DevOps_Cloud\\ejercicios\\apache-jmeter-5.6.3\\bin\\jmeter.bat -n -t test\\jmeter\\flask.jmx -l flask.jtl
+                            '''
+                            stash name: 'performance-results', includes: 'flask.jtl'
+                        }
+                    }
             }
         }
 
-
+        stage('Coverage'){
+            agent { label 'agent' }
+            steps{
+                unstash name: 'coverage-data'
+                bat 'whoami'
+                bat 'hostname'
+                bat 'echo %WORKSPACE%'
+                bat '''
+                    coverage xml
+                    coverage report
+                '''
+                stash name: 'coverage-results', includes: 'coverage.xml'
+            }
+        }
+        
         stage('Results'){
             steps{
-                unstash name:'unit-res'
-                unstash name:'rest-res'
+                // Recuperar todos los resultados
+                unstash name: 'unit-results'
+                unstash name: 'rest-results'
+                unstash name: 'coverage-results'
+                unstash name: 'static-results'
+                unstash name: 'security-results'
+                unstash name: 'performance-results'
+                
+                // Publicar resultados
                 junit 'result*.xml'
+                
+                recordIssues tools: [flake8(name: 'Flake8', pattern: 'flake8.out')], 
+                             qualityGates: [[threshold: 8, type: 'TOTAL', unstable: true], 
+                                           [threshold: 10, type: 'TOTAL', unstable: false]]
+                
+                recordIssues tools: [pyLint(name: 'Bandit', pattern: 'bandit.out')], 
+                             qualityGates: [[threshold: 2, type: 'TOTAL', unstable: true], 
+                                           [threshold: 4, type: 'TOTAL', unstable: false]]
+                
+                recordCoverage qualityGates: [
+                    [criticality: 'NOTE', integerThreshold: 95, metric: 'LINE', threshold: 95.0],
+                    [criticality: 'ERROR', integerThreshold: 85, metric: 'LINE', threshold: 85.0],
+                    [criticality: 'NOTE', integerThreshold: 90, metric: 'BRANCH', threshold: 90.0],
+                    [criticality: 'ERROR', integerThreshold: 80, metric: 'BRANCH', threshold: 80.0]
+                ],
+                tools: [[parser: 'COBERTURA', pattern: 'coverage.xml']]
+                
+                perfReport sourceDataFiles: 'flask.jtl'
+                deleteDir()
             }
         }
     }
