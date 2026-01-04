@@ -6,7 +6,7 @@ pipeline{
             steps{
                 // Obtener el código fuente desde el repositorio Git
                 echo 'Hello World' // Esto no es el echo del sistema operativo sino el del log de Jenkins
-                git 'https://github.com/albertogg1/CP1.2.git'
+                git branch: 'feature_fix_coverage', url: 'https://github.com/albertogg1/CP1.2.git'
                 bat 'dir'
                 bat 'echo %WORKSPACE%'
             }
@@ -50,7 +50,7 @@ pipeline{
             }
         }
 
-        stage('Security Test'){
+        stage('Security'){
             steps{
                 bat '''
                     set PYTHONPATH=%WORKSPACE%
