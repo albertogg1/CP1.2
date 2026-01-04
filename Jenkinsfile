@@ -50,7 +50,7 @@ pipeline{
             }
         }
 
-        stage('Security Test'){
+        stage('Security'){
             steps{
                 bat '''
                     set PYTHONPATH=%WORKSPACE%
